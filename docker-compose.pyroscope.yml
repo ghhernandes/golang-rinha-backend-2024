@@ -1,0 +1,83 @@
+version: "3.5"
+
+services:
+  api01: &api
+    build: .
+    hostname: api01
+    environment:
+      - DB_URI=user=admin password=123 dbname=rinha host=/var/run/postgresql
+      - SOCKET_ADDR=/etc/nginx/socket/api01.sock
+      - PYROSCOPE_ENABLED=1
+      - PYROSCOPE_ADDR=http://pyroscope:4040
+    ports:
+      - "8081:8080"
+    volumes:
+      - pg_socket_volume:/var/run/postgresql
+      - nginx_socket_volume:/etc/nginx/socket:Z
+    depends_on:
+      - db
+    deploy:
+      resources:
+        limits:
+          cpus: "0.6"
+          memory: "200MB"
+
+  api02:
+    <<: *api 
+    hostname: api02
+    ports:
+      - "8082:8080"
+    environment:
+      - SOCKET_ADDR=/etc/nginx/socket/api02.sock
+
+  nginx:
+    image: nginx:latest
+    privileged: true
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - nginx_socket_volume:/etc/nginx/socket:Z
+    depends_on:
+      - api01
+      - api02
+    ports:
+      - "9999:9999" 
+    deploy:
+      resources:
+        limits:
+          cpus: "0.17"
+          memory: "10MB"
+
+  db:
+    image: postgres:latest
+    hostname: db
+    environment:
+      - POSTGRES_PASSWORD=123
+      - POSTGRES_USER=admin
+      - POSTGRES_DB=rinha
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./sql/script.sql:/docker-entrypoint-initdb.d/script.sql
+      - pg_socket_volume:/var/run/postgresql
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: "256MB"
+
+  pyroscope:
+    image: grafana/pyroscope:latest
+    hostname: pyroscope
+    ports:
+      - "4040:4040"
+    volumes:
+      - pyroscope_volume:/etc/pyroscope
+
+networks:
+  default:
+    driver: bridge
+
+volumes:
+  pg_socket_volume:
+  pyroscope_volume:
+  nginx_socket_volume:
