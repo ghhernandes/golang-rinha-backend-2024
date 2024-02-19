@@ -17,8 +17,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.6"
-          memory: "200MB"
+          cpus: "0.25"
+          memory: "30MB"
 
   api02:
     <<: *api 
@@ -62,6 +62,12 @@ services:
         limits:
           cpus: "0.25"
           memory: "256MB"
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'pg_isready -U admin -d rinha'"]
+      interval: 5s
+      timeout: 2s
+      retries: 10
+      start_period: 10s
 
 networks:
   default:

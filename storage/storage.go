@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ghhernandes/rinha-backend-2024-q1"
+	"github.com/ghhernandes/golang-rinha-backend-2024"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -16,18 +16,13 @@ type Storage struct {
 }
 
 func New(url string) (*Storage, error) {
-	cfg, err := pgxpool.ParseConfig("")
+	cfg, err := pgxpool.ParseConfig("host=/var/run/postgresql user=admin password=123 dbname=rinha")
 	if err != nil {
 		return nil, err
 	}
 
-	cfg.ConnConfig.User = "admin"
-	cfg.ConnConfig.Password = "123"
-	cfg.ConnConfig.Host = "/var/run/postgresql"
-	cfg.ConnConfig.Port = 5432
-	cfg.ConnConfig.Database = "rinha"
-
-	fmt.Printf("%+v", cfg.ConnConfig)
+	cfg.MaxConns = 10
+	cfg.MinConns = 10
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {

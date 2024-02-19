@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ghhernandes/rinha-backend-2024-q1/web"
+	"github.com/ghhernandes/golang-rinha-backend-2024/web"
 )
 
 type Handler struct {

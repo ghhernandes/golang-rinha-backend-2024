@@ -3,28 +3,36 @@ package web
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log"
 	"net"
 	"net/http"
-	"strconv"
 
-	"github.com/ghhernandes/rinha-backend-2024-q1"
-	"github.com/ghhernandes/rinha-backend-2024-q1/storage"
+	rinha "github.com/ghhernandes/golang-rinha-backend-2024"
+	"github.com/ghhernandes/golang-rinha-backend-2024/storage"
+	"github.com/julienschmidt/httprouter"
 )
 
 type Handler struct {
-	router  *http.ServeMux
+	router  *httprouter.Router
 	storage *storage.Storage
 
 	quitCh chan struct{}
 }
 
 func New(storage *storage.Storage) *Handler {
-	r := http.NewServeMux()
+	r := httprouter.New()
 
-	r.HandleFunc("POST /clientes/{cliente_id}/transacoes", transacoesHandler(storage))
-	r.HandleFunc("GET /clientes/{cliente_id}/extrato", extratoHandler(storage))
+	r.Handler(http.MethodPost, "/clientes/1/transacoes", transacoesHandler(storage, 1))
+	r.Handler(http.MethodPost, "/clientes/2/transacoes", transacoesHandler(storage, 2))
+	r.Handler(http.MethodPost, "/clientes/3/transacoes", transacoesHandler(storage, 3))
+	r.Handler(http.MethodPost, "/clientes/4/transacoes", transacoesHandler(storage, 4))
+	r.Handler(http.MethodPost, "/clientes/5/transacoes", transacoesHandler(storage, 5))
+
+	r.Handler(http.MethodGet, "/clientes/1/extrato", extratoHandler(storage, 1))
+	r.Handler(http.MethodGet, "/clientes/2/extrato", extratoHandler(storage, 2))
+	r.Handler(http.MethodGet, "/clientes/3/extrato", extratoHandler(storage, 3))
+	r.Handler(http.MethodGet, "/clientes/4/extrato", extratoHandler(storage, 4))
+	r.Handler(http.MethodGet, "/clientes/5/extrato", extratoHandler(storage, 5))
 
 	return &Handler{
 		router:  r,
@@ -53,7 +61,7 @@ func (h Handler) Serve(l net.Listener) <-chan struct{} {
 	return h.quitCh
 }
 
-func transacoesHandler(storage *storage.Storage) http.HandlerFunc {
+func transacoesHandler(storage *storage.Storage, clienteId int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req TransacaoPostRequest
 		ctx := context.Background()
@@ -66,12 +74,6 @@ func transacoesHandler(storage *storage.Storage) http.HandlerFunc {
 
 		if err := req.Validate(); err != nil {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
-			return
-		}
-
-		clienteId, err := getClienteId(r)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 
@@ -95,14 +97,8 @@ func transacoesHandler(storage *storage.Storage) http.HandlerFunc {
 	}
 }
 
-func extratoHandler(storage *storage.Storage) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		clienteId, err := getClienteId(r)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-
+func extratoHandler(storage *storage.Storage, clienteId int) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
 		e, err := storage.GetExtrato(context.Background(), clienteId)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
@@ -112,12 +108,4 @@ func extratoHandler(storage *storage.Storage) http.HandlerFunc {
 		response, _ := json.Marshal(e)
 		w.Write(response)
 	}
-}
-
-func getClienteId(r *http.Request) (int, error) {
-	id, err := strconv.Atoi(r.PathValue("cliente_id"))
-	if id < 0 || id > 5 {
-		return -1, errors.New("cliente not found")
-	}
-	return id, err
 }
