@@ -42,8 +42,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.17"
-          memory: "10MB"
+          cpus: "0.25"
+          memory: "30MB"
 
   db:
     image: postgres:latest
@@ -60,8 +60,8 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.25"
-          memory: "256MB"
+          cpus: "0.75"
+          memory: "460MB"
     healthcheck:
       test: ["CMD-SHELL", "sh -c 'pg_isready -U admin -d rinha'"]
       interval: 5s
