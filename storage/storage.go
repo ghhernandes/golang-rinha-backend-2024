@@ -6,23 +6,51 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ghhernandes/golang-rinha-backend-2024"
+	rinha "github.com/ghhernandes/golang-rinha-backend-2024"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const (
+	CREATE_TRANSACTION = "INSERT INTO transacoes(cliente_id, valor, descricao) values ($1, $2, $3)"
+	UPDATE_SALDO       = "UPDATE clientes set saldo = saldo + $2 where id = $1"
+	GET_SALDO          = "SELECT limite, saldo from clientes where id = $1"
+	GET_EXTRATO        = "SELECT cliente_id, valor, descricao, data from transacoes where cliente_id = $1 order by data desc limit 10"
+	GET_LOCK           = "SELECT pg_advisory_xact_lock($1)"
+)
+
+type Config struct {
+	Host         string
+	User         string
+	Password     string
+	DatabaseName string
+
+	MinConns int32
+	MaxConns int32
+}
 
 type Storage struct {
 	pool *pgxpool.Pool
 }
 
-func New(url string) (*Storage, error) {
-	cfg, err := pgxpool.ParseConfig("host=/var/run/postgresql user=admin password=123 dbname=rinha")
+func New(config *Config) (*Storage, error) {
+	if config == nil {
+		return nil, errors.New("storage config not set")
+	}
+
+	cfg, err := pgxpool.ParseConfig(fmt.Sprintf("host=%s user=%s password=%s dbname=%s",
+		config.Host,
+		config.User,
+		config.Password,
+		config.DatabaseName,
+	))
+
 	if err != nil {
 		return nil, err
 	}
 
-	cfg.MaxConns = 10
-	cfg.MinConns = 10
+	cfg.MaxConns = config.MaxConns
+	cfg.MinConns = config.MinConns
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
@@ -36,34 +64,46 @@ func (s Storage) Close() {
 }
 
 func (s Storage) CreateTransacao(ctx context.Context, t rinha.Transacao) (rinha.Saldo, error) {
-	var (
-		saldo      rinha.Saldo
-		finalizado bool
-	)
-
-	conn, _ := s.pool.Acquire(ctx)
-	defer conn.Release()
-
-	conn.Exec(ctx, "SELECT pg_advisory_lock($1)", t.ClienteId)
-	defer conn.Exec(ctx, "SELECT pg_advisory_unlock($1)", t.ClienteId)
+	var saldo rinha.Saldo
 
 	if t.Tipo == "d" {
 		t.Valor = t.Valor * -1
 	}
 
-	r := conn.QueryRow(
-		context.Background(),
-		"select limite_atual, novo_saldo, finalizado from create_transacao($1, $2, $3)",
-		t.ClienteId, t.Valor, t.Descricao,
-	)
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return rinha.Saldo{}, err
+	}
+	defer tx.Rollback(ctx)
 
-	if err := r.Scan(&saldo.Limite, &saldo.Total, &finalizado); err != nil {
-		return saldo, fmt.Errorf("create transaction: scan: %v", err)
+	tx.Exec(ctx, GET_LOCK, t.ClienteId)
+
+	q := tx.QueryRow(ctx, GET_SALDO, t.ClienteId)
+
+	if err := q.Scan(&saldo.Limite, &saldo.Total); err != nil {
+		return rinha.Saldo{}, err
 	}
 
-	if !finalizado {
-		return saldo, errors.New("invalid operation")
+	if t.Valor < 0 && saldo.Total+t.Valor < (saldo.Limite*-1) {
+		return rinha.Saldo{}, err
 	}
+
+	var batch pgx.Batch
+
+	batch.Queue(CREATE_TRANSACTION, t.ClienteId, t.Valor, t.Descricao)
+	batch.Queue(UPDATE_SALDO, t.ClienteId, t.Valor)
+
+	r := tx.SendBatch(ctx, &batch)
+
+	if err := r.Close(); err != nil {
+		return rinha.Saldo{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return rinha.Saldo{}, err
+	}
+
+	saldo.Total += t.Valor
 
 	return saldo, nil
 }
@@ -79,14 +119,7 @@ func (s Storage) GetExtrato(ctx context.Context, clienteId int) (rinha.Extrato, 
 		saldoCh <- saldo
 	}()
 
-	rows, err := s.pool.Query(context.Background(), `
-        select cliente_id, valor, descricao, data 
-        from transacoes 
-        where cliente_id = $1 
-        order by data desc 
-        limit 10`,
-		clienteId,
-	)
+	rows, err := s.pool.Query(ctx, GET_EXTRATO, clienteId)
 	if err != nil {
 		return rinha.Extrato{}, err
 	}
@@ -113,12 +146,9 @@ func (s Storage) GetExtrato(ctx context.Context, clienteId int) (rinha.Extrato, 
 
 func (s Storage) getSaldo(ctx context.Context, clienteId int) (rinha.Saldo, error) {
 	var total, limite int
-	row := s.pool.QueryRow(context.Background(),
-		"select saldo, limite from clientes where id = $1",
-		clienteId,
-	)
+	row := s.pool.QueryRow(context.Background(), GET_SALDO, clienteId)
 
-	if err := row.Scan(&total, &limite); err != nil {
+	if err := row.Scan(&limite, &total); err != nil {
 		return rinha.Saldo{}, nil
 	}
 	return rinha.Saldo{Total: total, Limite: limite, DataExtrato: time.Now().UTC()}, nil

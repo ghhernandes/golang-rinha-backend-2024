@@ -9,7 +9,15 @@ import (
 )
 
 func main() {
-	db, err := storage.New(os.Getenv("DB_URI"))
+	db, err := storage.New(&storage.Config{
+		Host:         os.Getenv("DB_HOST"),
+		User:         os.Getenv("DB_USER"),
+		Password:     os.Getenv("DB_PASSWORD"),
+		DatabaseName: os.Getenv("DB_NAME"),
+
+		MaxConns: 10,
+		MinConns: 10,
+	})
 	if err != nil {
 		panic(err)
 	}

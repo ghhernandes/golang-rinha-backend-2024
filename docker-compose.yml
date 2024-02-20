@@ -5,7 +5,10 @@ services:
     build: .
     hostname: api01
     environment:
-      - DB_URI=user=admin password=123 dbname=rinha host=/var/run/postgresql
+      - DB_HOST=/var/run/postgresql
+      - DB_USER=admin
+      - DB_PASSWORD=123
+      - DB_NAME=rinha
       - SOCKET_ADDR=/etc/nginx/socket/api01.sock
     ports:
       - "8081:8080"
@@ -26,6 +29,10 @@ services:
     ports:
       - "8082:8080"
     environment:
+      - DB_HOST=/var/run/postgresql
+      - DB_USER=admin
+      - DB_PASSWORD=123
+      - DB_NAME=rinha
       - SOCKET_ADDR=/etc/nginx/socket/api02.sock
 
   nginx:
