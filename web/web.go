@@ -10,6 +10,10 @@ import (
 	rinha "github.com/ghhernandes/golang-rinha-backend-2024"
 	"github.com/ghhernandes/golang-rinha-backend-2024/storage"
 	"github.com/julienschmidt/httprouter"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Handler struct {
@@ -17,27 +21,49 @@ type Handler struct {
 	storage *storage.Storage
 
 	quitCh chan struct{}
+
+	requestDuration *prometheus.HistogramVec
+	requestCount    *prometheus.CounterVec
 }
 
 func New(storage *storage.Storage) *Handler {
+	counter := promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "http_request_total",
+	}, []string{"code", "method"})
+
+	duration := promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "http_request_duration_milisec",
+		Buckets: prometheus.LinearBuckets(0, .1, 10),
+	}, []string{"code", "method"})
+
+	middlewareFn := func(h http.Handler) http.Handler {
+		h = promhttp.InstrumentHandlerCounter(counter, h)
+		return promhttp.InstrumentHandlerDuration(duration, h)
+	}
+
 	r := httprouter.New()
 
-	r.Handler(http.MethodPost, "/clientes/1/transacoes", transacoesHandler(storage, 1))
-	r.Handler(http.MethodPost, "/clientes/2/transacoes", transacoesHandler(storage, 2))
-	r.Handler(http.MethodPost, "/clientes/3/transacoes", transacoesHandler(storage, 3))
-	r.Handler(http.MethodPost, "/clientes/4/transacoes", transacoesHandler(storage, 4))
-	r.Handler(http.MethodPost, "/clientes/5/transacoes", transacoesHandler(storage, 5))
+	r.Handler(http.MethodPost, "/clientes/1/transacoes", middlewareFn(transacoesHandler(storage, 1)))
+	r.Handler(http.MethodPost, "/clientes/2/transacoes", middlewareFn(transacoesHandler(storage, 2)))
+	r.Handler(http.MethodPost, "/clientes/3/transacoes", middlewareFn(transacoesHandler(storage, 3)))
+	r.Handler(http.MethodPost, "/clientes/4/transacoes", middlewareFn(transacoesHandler(storage, 4)))
+	r.Handler(http.MethodPost, "/clientes/5/transacoes", middlewareFn(transacoesHandler(storage, 5)))
 
-	r.Handler(http.MethodGet, "/clientes/1/extrato", extratoHandler(storage, 1))
-	r.Handler(http.MethodGet, "/clientes/2/extrato", extratoHandler(storage, 2))
-	r.Handler(http.MethodGet, "/clientes/3/extrato", extratoHandler(storage, 3))
-	r.Handler(http.MethodGet, "/clientes/4/extrato", extratoHandler(storage, 4))
-	r.Handler(http.MethodGet, "/clientes/5/extrato", extratoHandler(storage, 5))
+	r.Handler(http.MethodGet, "/clientes/1/extrato", middlewareFn(extratoHandler(storage, 1)))
+	r.Handler(http.MethodGet, "/clientes/2/extrato", middlewareFn(extratoHandler(storage, 2)))
+	r.Handler(http.MethodGet, "/clientes/3/extrato", middlewareFn(extratoHandler(storage, 3)))
+	r.Handler(http.MethodGet, "/clientes/4/extrato", middlewareFn(extratoHandler(storage, 4)))
+	r.Handler(http.MethodGet, "/clientes/5/extrato", middlewareFn(extratoHandler(storage, 5)))
+
+	r.Handler(http.MethodGet, "/metrics", promhttp.Handler())
 
 	return &Handler{
 		router:  r,
 		storage: storage,
 		quitCh:  make(chan struct{}),
+
+		requestCount:    counter,
+		requestDuration: duration,
 	}
 }
 
